@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html><head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	<title>Калькулятор расчёта процентов по договору займа </title>
+	<meta name="description" content="Калькулятор расчёта процентов по договору займа">		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link href="/css/style.css?cb" rel="stylesheet" type="text/css">
+	<script src="js/jquery.min.js"></script>
+<style type="text/css">
+
+</style>
+</head>
+<body>
+
+
+
+<!-- Left -->
+
+<div id="center_column" class="center_column">
+	<div class="content-part" id="content-part">
+		<link href="/css/calc.css" rel="stylesheet">
+<link href="/css/dpick/jquery-ui.min.css" rel="stylesheet">
+<script src="/css/dpick/jquery-ui.min.js"></script>
+<h1><span>Калькулятор расчёта процентов по договору займа </span></h1>
+
+
+<p>
+	&nbsp;</p>
+<script type="text/javascript">
+
+var DATA_TYPE_INFO = 1;
+var DATA_TYPE_PAYED = 2;
+
+var PERCENT_TYPE_DAY = 1;
+var PERCENT_TYPE_YEAR = 2;
+
+function updateData(showErrors) {
+	
+	$('.calc .error-field').removeClass('error-field');
+	var clips = $('.resultAppearing'); clips.hide();
+	var hash = [], errors = [];
+
+	var loanAmount = hash['loanAmount'] = ggg('loanAmount');
+	if (!loanAmount) {
+		wrongData('loanAmount');
+		errors.push('Введите сумму задолженности');
+	} else {
+		loanAmount = normalizeLoan(loanAmount);
+		if (!$.isNumeric(loanAmount)) {
+			wrongData('loanAmount');
+			errors.push('Вы ввели неправильную сумму задолженности');
+		}
+	}
+
+	var dateStart = dateParse(hash['dateStart'] = ggg('dateStart'));
+	if (!dateStart) {
+		wrongData('dateStart');
+		errors.push('Дата начала периода не введена');
+	}
+
+	var dateFinish = dateParse(hash['dateFinish'] = ggg('dateFinish'));
+	if (!dateFinish) {
+		wrongData('dateFinish');
+		errors.push('Дата конца периода не введена');
+	}
+
+	var totalDays;
+	if (dateFinish && dateStart) {
+		totalDays = dateDiff(dateFinish, dateStart);
+		if (totalDays <= 0) {
+			wrongData('dateFinish');
+			errors.push('Дата начала периода оказалась больше даты окончания. Обратите внимание');
+		}
+	}
+	
+	var percentType = hash['percentType'] = document.getElementById('percentType').options[document.getElementById('percentType').selectedIndex].value;
+	if (!percentType) {
+		wrongData('percentType');
+		errors.push('Период процентов не указан');
+	}
+
+	var percent = hash['percent'] = ggg('percent');
+
+	if (!percent) {
+		wrongData('percent');
+		errors.push('Введите проценты задолженности');
+	} else {
+		percent = normalizeLoan(percent);
+		if (!percent) {
+			wrongData('percent');
+			errors.push('Вы ввели неправильные проценты');
+		}
+	}
+
+	var limitPeni = 0;
+
+	var paymentsEx = collectPaymentsEx('pay');
+	if (paymentsEx === null)
+		return;
+	/*var loans = collectPaymentsEx('loan');
+	if (loans === null)
+		return;*/
+
+	hash['payments'] = preparePayments(paymentsEx);
+	//hash['loans'] = preparePayments(loans);
+
+	var el = $('#error-pane');
+
+	if (errors.length) {
+		if (showErrors) {
+			var html = '<ul>';
+			for (var i = 0; i < errors.length; i++)
+				html += '<li>' + errors[i] + '</li>';
+			html += '</ul>';
+
+			el.html(html);
+			el.show();
+			document.location.hash = '';
+			document.location.hash = 'calc-error';
+		}
+		return;
+	}
+	el.hide();
+	var payments = gluePayments(paymentsEx);
+
+	updateHash(hash);
+
+	
+	document.getElementById('resultPane').innerHTML = (percentType == PERCENT_TYPE_DAY) ?
+				getPeniDays(loanAmount, dateStart, dateFinish, percent, payments, limitPeni)
+				: getPeniYears(loanAmount, dateStart, dateFinish, percent, payments, limitPeni);
+
+	document.getElementById('loanAmountRes').innerHTML = moneyFormat(loanAmount);
+	document.getElementById('dateStartRes').innerHTML = fd(dateStart);
+	document.getElementById('dateFinishRes').innerHTML = fd(dateFinish);
+	document.getElementById('rateTypeRes').innerHTML = moneyFormat(percent) + ' % ' + (percentType == PERCENT_TYPE_DAY? 'в день' : 'годовых');
+
+	var href = document.location.href;
+	$('#djuLink').html(href);
+	var aHref = $('#djuHref');
+	aHref.attr('href', href);
+	aHref.html(cutLink(href));
+
+	clips.show();
+}
+
+function getPeniDays(loanAmount, dateStart, dateFinish, percents, payments, limitPeni) {
+	var resData = [];
+	var sum = loanAmount;
+	var startJ = 0;
+
+	var peni = 0;
+
+	for (var j = startJ; j < payments.length; j++) {
+		var payment = payments[j];
+		if (dateStart.getTime() <= payment.datePlus.getTime()) 
+			break;
+
+		if (payment.sum >= 0) {
+			var peniClose;
+			if (peni <= payment.sum) {
+				peniClose = peni;
+				peni = 0;
+				sum -= payment.sum - peniClose;
+			} else {
+				peniClose = payment.sum;
+				peni -= payment.sum;
+			}
+		} else {
+			peniClose = 0;
+			sum -= payment.sum;
+		}
+
+		resData.push({type: DATA_TYPE_PAYED, data: {sum: payment.sum, peni: peniClose, date: payment.date, order: payment.order}, peni: peni});
+	}
+
+	startJ = j;
+
+	var lastStartJ = startJ;
+	for (var j = startJ; j < payments.length; j++) {
+		var payment = payments[j];
+		if (dateStart <= payment.datePlus && payment.datePlus <= dateFinish) {
+			if (payment.datePlus.getTime() != dateStart.getTime() && ( j == 0 || j >= 1 && payments[j - 1].datePlus < dateStart)) {
+				var data = processDataDays(sum, percents, dateStart, payments[j].date);
+				peni += data.cost;
+				resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+			}
+
+			if (payment.sum >= 0) {
+				var peniClose;
+				if (peni <= payment.sum) {
+					peniClose = peni;
+					peni = 0;
+					sum -= payment.sum - peniClose;
+				} else {
+					peniClose = payment.sum;
+					peni -= payment.sum;
+				}
+			} else {
+				peniClose = 0;
+				sum -= payment.sum;
+			}
+
+			resData.push({type: DATA_TYPE_PAYED, data: {sum: payment.sum, peni: peniClose, date: payment.date, order: payment.order}, peni: peni});
+			if (dateStart.getTime() > payment.datePlus.getTime())
+				continue;
+			if (sum <= 0) {
+				continue;
+			}
+			if (j + 1 >= payments.length || j + 1 < payments.length && payments[j + 1].datePlus > dateFinish && payment.date.getTime() != payments[j + 1].date.getTime()) {
+				var data = processDataDays(sum, percents, payment.datePlus, dateFinish);
+				peni += data.cost;
+				resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+			} else if (j + 1 < payments.length && payments[j + 1].datePlus <= dateFinish && payment.date.getTime() != payments[j + 1].date.getTime()) {
+				var data = processDataDays(sum, percents, payment.datePlus, payments[j + 1].date);
+				peni += data.cost;
+				resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+			}
+			startJ = j + 1;
+		}
+	}
+	if (sum > 0 && lastStartJ == startJ) {
+		var data = processDataDays(sum, percents, dateStart, dateFinish);
+		peni += data.cost;
+		resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+	}
+
+	if (sum < 0)
+		sum = 0;
+
+	var resultString = '<table contenteditable="true" class="judge-table jt-2"><tr class="head">' +
+			'<td rowspan="2">Задолженность</td>' +
+			'<td colspan="3">Период просрочки</td>' +
+			'<td rowspan="2">Формула</td>' +
+			'<td rowspan="2">Проценты за&nbsp;период</td>' +
+			'<td rowspan="2">Сумма процентов</td>' +
+			'</tr>' +
+			'<tr class="head"><td>с</td><td>по</td><td>дней</td></tr>';
+	for (var i = 0; i < resData.length; i++) {
+		var r = resData[i];
+		if (r.type == DATA_TYPE_INFO) {
+			resultString += '<tr>' +
+					'<td>' + moneyFormat(r.data.sum) + '</td>' +
+					'<td>' + fd(r.data.dateStart) + '</td>' +
+					'<td>' + fd(r.data.dateFinish) + '</td>' +
+					'<td>' + r.data.days + '</td>' +
+					'<td>' + moneyFormat(r.data.sum) + ' × ' + r.data.days + ' × ' + percents + '% </td>' +
+					'<td>+ ' + moneyFormat(r.data.cost)  + ' р.</td>' +
+					'<td>= '+moneyFormat(r.peni)+' р.</td>' +
+					'</tr>';
+		} else if (r.type == DATA_TYPE_PAYED) {
+
+
+		if (r.data.sum > 0)
+			resultString += '<tr class="jt-payed">'
+						+ '<td>'+ ((r.data.sum - r.data.peni > 0)? ' -' + moneyFormat(r.data.sum - r.data.peni) : '') + '</td>'
+						+ '<td>' + fd(r.data.date) + '</td>'
+						+ '<td colspan="3" style="text-align: left">Оплата долга' + (r.data.order? ' (' + r.data.order + ')' : '') + '</td>'
+						+ '<td>' + (r.data.peni? '-' + moneyFormat(r.data.peni) : '') + '</td>'
+						+ '<td>= '+moneyFormat(r.peni)+' р.</td>'
+						+ '</tr>';
+		else
+			resultString += '<tr class="jt-loaned">'
+						+ '<td>+'+ moneyFormat(-r.data.sum) + '</td>'
+						+ '<td>' + fd(new Date(r.data.date.getTime() + ONE_DAY)) + '</td>'
+						+ '<td colspan="5" style="text-align: left">Новая задолженность'+ (r.data.order? ' (' + r.data.order + ')' : '')  + '</td></tr>';
+
+
+		}
+	}
+
+	resultString += '<tr class="calc-footer"><td colspan="7" style="font-size:14px; text-align: right; font-weight: bold;">Сумма процентов: ' + moneyFormat(peni)  +' руб.</td></tr>';
+	resultString += '<tr class="calc-footer"><td colspan="7" style="font-size:14px; text-align: right">Сумма основного долга: ' + moneyFormat(sum)  +' руб.</td></tr>';
+	resultString += '</table>';
+	return resultString;
+}
+
+function processDataDays(sum, percents, dateStart, dateFinish) {
+	var days = dateDiff(dateFinish, dateStart);
+	return {cost: countCostDays(sum, days, percents), days:days, dateStart:dateStart, dateFinish:dateFinish, sum:sum};
+}
+
+function countCostDays(money, days, percent) {
+	var res = money*days*percent/100.;
+	res = Math.round(res*100)/100;
+	return parseFloat(res.toFixed(2));
+}
+
+/******************************************/
+
+function getPeniYears(loanAmount, dateStart, dateFinish, percents, payments, limitPeni) {
+	var resData = [];
+	var sum = loanAmount;
+	var startJ = 0;
+	
+	var peni = 0;
+
+	var lastStartJ = startJ;
+	for (var j = startJ; j < payments.length; j++) {
+		var payment = payments[j];
+		if (dateStart <= payment.datePlus && payment.datePlus <= dateFinish) {
+			if (payment.datePlus.getTime() != dateStart.getTime() && ( j == 0 || j >= 1 && payments[j - 1].datePlus < dateStart)) {
+				peni = resAddData(resData, sum, peni, percents, dateStart, payments[j].date);
+			}
+
+			if (payment.sum >= 0) {
+				var peniClose;
+				if (peni <= payment.sum) {
+					peniClose = peni;
+					peni = 0;
+					sum -= payment.sum - peniClose;
+				} else {
+					peniClose = payment.sum;
+					peni -= payment.sum;
+				}
+			} else{
+				peniClose = 0;
+				sum -= payment.sum;
+			}
+
+			resData.push({type: DATA_TYPE_PAYED, data: {sum: payment.sum, peni: peniClose, date: payment.date, order: payment.order}, peni: peni});
+			if (sum <= 0) {
+				continue;
+			}
+			if (j + 1 >= payments.length || j + 1 < payments.length && payments[j + 1].datePlus > dateFinish && payment.date.getTime() != payments[j + 1].date.getTime()) {
+				peni = resAddData(resData, sum, peni, percents, payment.datePlus, dateFinish);
+			} else if (j + 1 < payments.length && payments[j + 1].datePlus <= dateFinish && payment.date.getTime() != payments[j + 1].date.getTime()) {
+				peni = resAddData(resData, sum, peni, percents, payment.datePlus, payments[j + 1].date);
+			}
+			startJ = j + 1;
+		} else if (data.dateFinish <= payment.date) {
+			break;
+		}
+	}
+	if (sum > 0 && lastStartJ == startJ) {
+		peni = resAddData(resData, sum, peni, percents, dateStart, dateFinish);
+	}
+
+	if (sum < 0)
+		sum = 0;
+
+	var resultString = '<table contenteditable="true" class="judge-table jt-2"><tr class="head">' +
+			'<td rowspan="2">Задолженность</td>' +
+			'<td colspan="3">Период просрочки</td>' +
+			'<td rowspan="2">Формула</td>' +
+			'<td rowspan="2">Проценты за&nbsp;период</td>' +
+			'<td rowspan="2">Сумма процентов</td>' +
+			'</tr>' +
+			'<tr class="head"><td>с</td><td>по</td><td>дней</td></tr>';
+	for (var i = 0; i < resData.length; i++) {
+		var r = resData[i];
+		if (r.type == DATA_TYPE_INFO) {
+			resultString += '<tr>' +
+					'<td>' + moneyFormat(r.data.sum) + '</td>' +
+					'<td>' + fd(r.data.dateStart) + '</td>' +
+					'<td>' + fd(r.data.dateFinish) + '</td>' +
+					'<td>' + r.data.days + '</td>' +
+					'<td>' + moneyFormat(r.data.sum) + ' × ' + r.data.days + ' / ' + r.data.daysInYear + ' × ' + percents + '% </td>' +
+					'<td>+ ' + moneyFormat(r.data.cost)  + ' р.</td>' +
+					'<td>= '+moneyFormat(r.peni)+' р.</td>' +
+					'</tr>';
+		} else if (r.type == DATA_TYPE_PAYED) {
+			if (r.data.sum > 0)
+				resultString += '<tr class="jt-payed">'
+							+ '<td>'+ ((r.data.sum - r.data.peni > 0)? ' -' + moneyFormat(r.data.sum - r.data.peni) : '') + '</td>'
+							+ '<td>' + fd(r.data.date) + '</td>'
+							+ '<td colspan="3" style="text-align: left">Оплата долга' + (r.data.order? ' (' + r.data.order + ')' : '') + '</td>'
+							+ '<td>' + (r.data.peni? '-' + moneyFormat(r.data.peni) : '') + '</td>'
+							+ '<td>= '+moneyFormat(r.peni)+' р.</td>'
+							+ '</tr>';
+			else
+				resultString += '<tr class="jt-loaned">'
+							+ '<td>+'+ moneyFormat(-r.data.sum) + '</td>'
+							+ '<td>' + fd(new Date(r.data.date.getTime() + ONE_DAY)) + '</td>'
+							+ '<td colspan="5" style="text-align: left">Новая задолженность'+ (r.data.order? ' (' + r.data.order + ')' : '')  + '</td></tr>';
+		}
+	}
+
+	resultString += '<tr class="calc-footer"><td colspan="7" style="font-size:14px; text-align: right; font-weight: bold;">Сумма процентов: ' + moneyFormat(peni)  +' руб.</td></tr>';
+	resultString += '<tr class="calc-footer"><td colspan="7" style="font-size:14px; text-align: right">Сумма основного долга: ' + moneyFormat(sum)  +' руб.</td></tr>';
+	resultString += '</table>';
+	return resultString;
+}
+
+var daysInYear = [];
+
+function getDaysInYear(year) {
+	if (daysInYear[year] !== undefined)
+		return daysInYear[year];
+	var d = new Date(year, 2, 0);
+	return daysInYear[year] = ((d.getDate() == 29)? 366 : 365);
+}
+
+function resAddData(resData, sum, peni, percents, dateStart, dateFinish) {
+	var y1 = dateStart.getFullYear();
+	var y2 = dateFinish.getFullYear();
+	var data;
+	if (y1 == y2) {
+		data = processDataYears(sum, percents, dateStart, dateFinish, getDaysInYear(y1));
+		peni += data.cost;
+		resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+	} else {
+		var start = y1;
+		var d1 = getDaysInYear(y1);
+		for (var i = y1 + 1; i <= y2; i++) {
+			var d2 = getDaysInYear(i);
+			if (d1 != d2) {
+				var ds = (start == y1)? dateStart : new Date(start, 0, 1);
+				var df = new Date(i, 0, 0);
+				data = processDataYears(sum, percents, ds, df, d1);
+				peni+= data.cost;
+				resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+				if (i == y2) {
+					data = processDataYears(sum, percents, new Date(i, 0, 1), dateFinish, d2);
+					peni+= data.cost;
+					resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+				}
+				start = i;
+				d1 = d2;
+			}
+		}
+		if (start != y2) {
+			var ds = (start == y1)? dateStart : new Date(start, 0, 1);
+			var df = dateFinish;
+			data = processDataYears(sum, percents, ds, df, d1);
+			peni += data.cost;
+			resData.push({type: DATA_TYPE_INFO, data: data, peni: peni});
+		}
+	}
+	return peni;
+}
+
+function gluePayments(payments) {
+	var res = [];
+	var i1 = 0, i2 = 0;
+	while (i1 < payments.length) {
+		var d = payments[i1];
+		res.push({date: d.date, sum : d.sum, order : d.order, datePlus : d.datePlus});
+		i1++;
+		
+	}
+	return res;
+}
+
+/*function gluePayments(payments, loans) {
+	var res = [];
+	var i1 = 0, i2 = 0;
+	while (i1 < payments.length || i2 < loans.length) {
+		if (i1 >= payments.length) {
+			var d = loans[i2];
+			res.push({date: new Date(d.date.getTime() - ONE_DAY), sum : -d.sum, order : d.order, datePlus : d.date});
+			i2++;
+		} else if (i2 >= loans.length) {
+			var d = payments[i1];
+			res.push({date: d.date, sum : d.sum, order : d.order, datePlus : d.datePlus});
+			i1++;
+		} else {
+			if (payments[i1].date.getTime() < loans[i2].date.getTime()) {
+				var d = payments[i1];
+				res.push({date: d.date, sum : d.sum, order : d.order, datePlus : d.datePlus});
+				i1++;
+			} else {
+				var d = loans[i2];
+				res.push({date: new Date(d.date.getTime() - ONE_DAY), sum : -d.sum, order : d.order, datePlus : d.date});
+				i2++;
+			}
+		}
+	}
+	return res;
+}*/
+
+function cutLink(link) {
+	var len = link.length;
+	if (len < 50)
+		return link;
+	return link.substring(0, 40) + ' ... ' + link.substring(len - 10, len);
+}
+/*
+function printingPage() {
+	showTnx();
+	var el = window.open("about:blank");
+	if(el){
+		el.document.open();
+		var res = document.getElementById('resultParams').innerHTML
+			+	document.getElementById('resultPane').innerHTML;
+		if ($('#sign').prop('checked')) {
+			var path = document.location.href;
+			var ind = path.indexOf('#');
+			if (ind >= 0)
+				path = path.substring(0, ind);
+			res += '<div>Калькулятор расчёта: ' + path + '</div>';
+		}
+		el.document.write(getTemplate(res));
+		waitPrint(el);
+	}
+}*/
+
+function preparePayments(payments) {
+	if (!payments.length)
+		return '';
+	var res = '';
+	for (var i = 0; i < payments.length; i++) {
+		var p = payments[i];
+		res += ';' + fd(p.date) + '_' + p.sum + '_' + p.order;
+	}
+	return res.substring(1);
+}
+
+function processDataYears(sum, percents, dateStart, dateFinish, daysInYear) {
+	var days = dateDiff(dateFinish, dateStart);
+	return {cost: countCostYears(sum, days, percents, daysInYear), days:days, dateStart:dateStart, dateFinish:dateFinish, sum:sum, daysInYear: daysInYear};
+}
+
+function collectPaymentsEx(prefix) {
+	var form = document.forms['calcTable'];
+	var res = [];
+	var payDates = form.elements[prefix + 'Dates[]'];
+	var val;
+	if (payDates.length) {
+		var paySums = form.elements[prefix + 'Sums[]'];
+		var payOrders = form.elements[prefix + 'Orders[]'];
+		for (var i = 0; i < payDates.length; i++) {
+			val = testPaymentLine(payDates[i], paySums[i], payOrders[i]);
+			if (!val)
+				return null;
+			if (val.date != null)
+				res.push(val);
+		}
+	} else {
+		val = testPaymentLine(form.elements[prefix + 'Dates[]'], form.elements[prefix + 'Sums[]'], form.elements[prefix + 'Orders[]']);
+		if (!val)
+			return null;
+		if (val.date != null)
+			res.push(val);
+	}
+
+	return sortPayments(res);
+}
+
+function sortPayments(arr) {
+	for (var i = 0; i + 1 < arr.length; i++)
+		for (var j = i + 1; j < arr.length; j++)
+			if (arr[i].date > arr[j].date) {
+				var tmp = arr[i];
+				arr[i] = arr[j];
+				arr[j] = tmp;
+			}
+	return arr;
+}
+
+function testPaymentLine(payDate, paySum, payOrder) {
+	if (!(payDate.value && paySum.value))
+		return {date: null, sum: null, order: null};
+	var resDate = null;
+	if (payDate.value) {
+		resDate = dateParse(payDate.value);
+	}
+
+	if (!resDate) {
+		wrongData($(payDate).attr('id'));
+		return null;
+	}
+
+	var resSum = null;
+	if (paySum.value) {
+		resSum = normalizeLoan(paySum.value);
+	}
+
+	if (!resSum) {
+		wrongData($(paySum).attr('id'));
+		return null;
+	}
+
+	return {date: resDate, datePlus: new Date(resDate.getTime() + ONE_DAY), sum: resSum, order: payOrder.value};
+}
+
+function fd(date) {
+	var day = date.getDate();
+	if (day < 10)
+		day = '0' + day;
+	var monthIndex = date.getMonth() + 1;
+	if (monthIndex < 10)
+		monthIndex = '0' + monthIndex;
+	var year = date.getFullYear();
+	return day + '.' + monthIndex + '.' + year;
+}
+
+function countCostYears(money, days, percents, daysInYear) {
+	var res = money*days*percents/(daysInYear*100.);
+	res = Math.round(res*100)/100;
+	return parseFloat(res.toFixed(2));
+}
+
+function wrongData(id) {
+	var d = $('#' + id);
+	d.addClass('error-field');
+}
+
+function normalizeLoan(money) {
+	money = (money).replace(',', '.').replace(/ /g,"").replace(/ /g,"");
+	return parseFloat(money);
+}
+
+function ggg(id) {
+	return document.getElementById(id).value;
+}
+
+var ONE_DAY = 1000*60*60*24;
+
+function dateDiff(date1, date2) {
+
+	var date1_ms = date1.getTime();
+	var date2_ms = date2.getTime();
+	var difference_ms = date1_ms - date2_ms;
+	var absDiff = Math.round(difference_ms/ONE_DAY);
+	return absDiff + 1;
+
+}
+
+function daysInMonth(year, month) {
+	return new Date(year, month, 0).getDate();
+}
+
+function dateParse(dateStr) {
+	if (dateStr == null) return null;
+	var dateParts = dateStr.split("-");
+	if (dateParts.length != 3)
+		return null;
+	var d = new Date(dateParts[0], (dateParts[1] - 1), dateParts[2]);
+	if (d && !isNaN(d.getTime())) {
+		var fy = parseInt(dateParts[0]);
+		if (fy < 50)
+			d.setFullYear(2000 + fy);
+		else if (fy < 100)
+			d.setFullYear(1900 + fy);
+		return d;
+	}
+	return null;
+}
+
+function moneyFormat(money) {
+	return addCommas(parseFloat(money).toFixed(2)).replace(/\./g, ',');
+}
+
+function addCommas(nStr)
+{
+	nStr += '';
+	x = nStr.split('.');
+	x1 = x[0];
+	x2 = x.length > 1 ? '.' + x[1] : '';
+	var rgx = /(\d+)(\d{3})/;
+	while (rgx.test(x1)) {
+		x1 = x1.replace(rgx, '$1' + ' ' + '$2');
+	}
+	return x1 + x2;
+}
+
+var requestData = [];
+
+function ph() {
+	var path = document.location.href;
+	var ind = path.indexOf("#");
+	if (ind == -1)
+		return requestData;
+	path = path.substring(ind + 1);
+	var items = path.split("&");
+	for (var i = 0; i < items.length; i++) {
+		var data = items[i].split("=");
+		if (data.length == 2) {
+			requestData[data[0]] = data[1];
+		}
+	}
+	return requestData;
+}
+
+function uh(requestData) {
+
+	var res = '';
+	for (var word in requestData) {
+		if (requestData[word])
+   			res += "&" + word + "=" + requestData[word];
+	}
+	document.location.hash = res? res.substring(1) : res;
+}
+
+function clearCalc() {
+	$('#loanAmount').val('');
+	$('#dateStart').val('');
+	$('#dateFinish').val('');
+	document.getElementById('resultPane').innerHTML = '';
+	$('.resultAppearing').hide();
+	$('#pays').html('');
+	$('#loans').html('');
+	payId = -1;
+	addPay();
+	loanId = -1;
+	addLoan();
+	uh([]);
+}
+
+function AddDays() {
+	/*
+	var someDate = document.getElementById('dateStart');
+	var numberOfDaysToAdd = 6;
+	var result = someDate.setDate(someDate.getDate() + numberOfDaysToAdd);*/
+	var someDate = document.getElementById('dateStart').valueAsDate;
+	someDate.setDate(someDate.getDate() + 1);
+	document.getElementById('dateStart').valueAsDate = someDate;
+	someDate.setDate(someDate.getDate() + parseInt(document.getElementById('dayCount').value) - 1);
+	document.getElementById('dateFinish').valueAsDate = someDate;
+	//$('#dateFinish').val(result);
+}
+
+function copyToClipboard(elementId) {
+	fnSelect(elementId);
+	document.execCommand("copy");
+	fnDeSelect();
+}
+
+function copyTableToClipboard(elementId) {
+	showTnx();
+	copyToClipboard(elementId);
+	alert('Таблица скопирована в буфер обмена\nЧтобы вставить, нажмите Ctrl+V');
+}
+
+function copyHrefToClipboard(elementId) {
+	document.getElementById(elementId).style.display = 'block';
+	copyToClipboard(elementId);
+	document.getElementById(elementId).style.display = 'none';
+	alert('Ссылка на результаты скопирована в буфер обмена');
+}
+
+function fnSelect(objId) {
+	fnDeSelect();
+	if (document.selection) {
+		var range = document.body.createTextRange();
+		range.moveToElementText(document.getElementById(objId));
+		range.select();
+	}
+	else if (window.getSelection) {
+		var range = document.createRange();
+		range.selectNode(document.getElementById(objId));
+		window.getSelection().addRange(range);
+	}
+}
+function fnDeSelect() {
+	if (document.selection)
+		document.selection.empty();
+	else if (window.getSelection)
+		window.getSelection().removeAllRanges();
+}
+
+function parseHash() {
+	ph();
+}
+
+function formatDate(date) {
+	fd(date);
+}
+
+function updateHash(requestData) {
+	uh(requestData);
+}
+
+function ud(showErrors) {
+	updateData(showErrors);
+}
+
+function setPayments(params) {
+	var elements = params.split(';');
+	if (elements.length == 0)
+		return;
+	var d = elements[0].split('_');
+	$('#payDate0').val(d[0]);
+	$('#paySum0').val(d[1]);
+	$('#payOrder0').val(d[2]);
+	for (var i = 1; i < elements.length; i++) {
+		d = elements[i].split('_');
+		addPaymentInsert(d[0], d[1], d[2]);
+	}
+}
+
+function addPaymentInsert(date, sum, order) {
+	var d = ggg('payDate' + payId);
+	var s = ggg('paySum' + payId);
+	var o = ggg('payOrder' + payId);
+	if (d || s || o)
+		addPay();
+	var id = payId;
+	$('#payDate' + id).val(date);
+	$('#paySum' + id).val(sum);
+	$('#payOrder' + id).val(order);
+}
+
+function pastePayments() {
+	var el = $('#payImportText');
+	var text = el.val();
+	el.val('');
+	var data = parseTableText(text);
+	for (var i = 0; i < data.length; i++) {
+		var d = data[i];
+		addPaymentInsert(fd(d.date), d.sum, d.order);
+	}
+	closePaymentImport();
+}
+
+function openPaymentImport() {
+	$('#payImport').show();
+	$('#payImportText').focus();
+	if (yaCounter12693325)
+		yaCounter12693325.reachGoal('calc_import');
+}
+
+function closePaymentImport() {
+	$('#payImport').hide();
+}
+
+var payId = 0;
+//<input id="dateStart"type="date" onchange="ud()" style="width:100px" value=""/>
+function addPay() {
+	payId++;
+	var str = '<div id="pay' + payId + '"><input name="payDates[]" class="payDate" id="payDate' + payId + '" type="date" onchange="ud()" style="width:150px" type="text" value="">'
+			+ ' на сумму <input name="paySums[]" class="paySum" id="paySum' + payId + '">'
+			+ ' <span title="Дополнения и примечания по оплате">прим. <input name="payOrders[]" class="payOrder" id="payOrder' + payId + '"></span>'
+			+ ' <input  class="payAdd" type="button" value="+" title="Добавить строчку" onclick="addPay()">';
+	if (payId)
+			str += ' <input class="payRemove" type="button" value="-" title="Удалить строчку" onclick="removePay(' + payId + ')">';
+	str += ' </div>';
+	$('#pays').append(str);
+	$("#payDate" + payId).datepicker(dpOptions);
+
+}
+
+function PercBut1() {
+	percent.value = 0.8
+}
+
+function PercBut2() {
+	percent.value = 1.2
+}
+
+function removePay(id) {
+	$('#pay' + id).remove();
+}
+
+var loanId = 0;
+//<input id="dateStart"type="date" onchange="ud()" style="width:100px" value=""/>
+function addLoan() {
+	loanId++;
+	var str = '<div id="loan' + loanId + '"><input name="loanDates[]" class="payDate" id="loanDate' + loanId + '" type="date" onchange="ud()" style="width:150px" value="">'
+		+ ' на сумму <input name="loanSums[]" class="paySum" id="loanSum' + loanId + '">'
+		+ ' <span title="Дополнения и примечания по оплате">прим. <input name="loanOrders[]" class="payOrder" id="loanOrder' + loanId + '"></span>'
+		+ ' <input  class="payAdd" type="button" value="+" title="Добавить строчку" onclick="addLoan()">';
+	if (loanId)
+		str += ' <input class="payRemove" type="button" value="-" title="Удалить строчку" onclick="removeLoan(' + loanId + ')">';
+	str += ' </div>';
+	$('#loans').append(str);
+	$("#loanDate" + loanId).datepicker(dpOptions);
+
+}
+/*
+function addLoanMonth() {
+	var date = ggg('loanDate' + loanId);
+	var sum = ggg('loanSum' + loanId);
+	var order = ggg('loanOrder' + loanId);
+	var isFirst = false;
+	if (!date || !sum) {
+		if (loanId == 0 && !date && !sum) {
+			date = ggg('dateStart');
+			sum = ggg('loanAmount');
+			isFirst = true;
+		} else
+			return;
+	}
+
+	date = dateParse(date);
+	if (!date)
+		return;
+	if (!isFirst)
+		addLoan();
+
+	date = new Date(date.getFullYear(), date.getMonth() + 1, date.getDate());
+	$('#loanDate' + loanId).val(fd(date));
+	$('#loanSum' + loanId).val(sum);
+	$('#loanOrder' + loanId).val(order);
+}*/
+
+function setLoans(params) {
+	var elements = params.split(';');
+	if (elements.length == 0)
+		return;
+	var d = elements[0].split('_');
+	$('#loanDate0').val(d[0]);
+	$('#loanSum0').val(d[1]);
+	$('#loanOrder0').val(d[2]);
+	for (var i = 1; i < elements.length; i++) {
+		d = elements[i].split('_');
+		addLoanInsert(d[0], d[1], d[2]);
+	}
+}
+
+function addLoanInsert(date, sum, order) {
+	var d = ggg('loanDate' + loanId);
+	var s = ggg('loanSum' + loanId);
+	var o = ggg('loanOrder' + loanId);
+	if (d || s || o)
+		addLoan();
+	var id = loanId;
+	$('#loanDate' + id).val(date);
+	$('#loanSum' + id).val(sum);
+	$('#loanOrder' + id).val(order);
+}
+
+function pasteLoans() {
+	var el = $('#loanImportText');
+	var text = el.val();
+	el.val('');
+	var data = parseTableText(text);
+	for (var i = 0; i < data.length; i++) {
+		var d = data[i];
+		addLoanInsert(fd(d.date), d.sum, d.order);
+	}
+	closeLoanImport();
+}
+
+function parseTableText(text) {
+	var lines = text.split('\n');
+	var res = [];
+	for (var i = 0; i < lines.length; i++) {
+		var data = lines[i].split('\t');
+		if (data.length < 2) continue;
+		var sum = normalizeLoan(data[1]);
+		var date = dateParse(data[0]);
+		if (!(date && sum))
+			continue;
+
+		res.push({date: date, sum: sum, order: (data.length > 2)? data[3] : ''});
+	}
+	return res;
+}
+
+function removeLoan(id) {
+	$('#loan' + id).remove();
+}
+
+function openLoanImport() {
+	$('#loanImport').show();
+	$('#loanImportText').focus();
+}
+
+function closeLoanImport() {
+	$('#loanImport').hide();
+}
+
+function showTnx() {
+	if (!$.cookie || $.cookie('calc-tnx')) return;
+	$.cookie('calc-tnx', '1', {expires: 30, path: '/'});
+	$('#duh-wrap').show();
+}
+</script><style type="text/css">
+.jt-2 td {
+	text-align: right;
+}
+
+.jt-2 td.jt-loaned, .jt-2 td.jt-payed{
+	text-align: left;
+}
+</style>
+
+
+<div class="calc">
+	<h4>Введите параметры задолженности</h4>
+	<a name="calc-error"></a>
+	<div id="error-pane" class="error-notice" style="display: none"></div>
+	<form name="calcTable" action="javascript: return false">
+		<table class="edit-table-onsite">
+			<tbody>
+				<tr>
+					<td class="label" style="width: 1px;">
+						Сумма задолженности:</td>
+					<td>
+						<input id="loanAmount" onchange="ud()" style="width: 200px" type="text" value="" /> рублей</td>
+				</tr>
+				<tr>
+					<td class="label">
+						Период просрочки:</td>
+					<td>
+						<table class="no-pading">
+							<tbody>
+								<tr>
+									<td>
+										<input id="dateStart"type="date" onchange="ud()" style="width:150px" value=""/></td>
+									<td>
+										<input id="dateFinish"type="date" onchange="ud()" style="width:150px" value=""/></td>
+										<script>
+											document.getElementById('dateFinish').valueAsDate = new Date();
+											</script>
+									<td>
+										<input class="payAdd" type="button" value="+" title="Установить процент" onclick="AddDays()"></td>
+									<td>
+										<input id="dayCount"type="text" style="width:100px" value=""/></td>
+								</tr>
+								<tr>
+									<td>
+										<div class="notice">
+											Начало периода</div>
+									</td>
+									<td>
+										<div class="notice">
+											Конец периода </div>
+									</td>
+									<td>
+										<div class="notice"> </div>
+									</td>
+									<td>
+										<div class="notice">
+											Добавить дни </div>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</td>
+				</tr>
+				<tr>
+					<td class="label" style="white-space: normal">
+						Процент:</td>
+					<td>
+						<table class="no-pading"><tbody><tr>
+							<td>
+								<!--<input class="payAdd" type="button" value="0.8" title="Установить процент" onclick="PercBut1()">
+								<input class="payAdd" type="button" value="1.2" title="Установить процент" onclick="PercBut2()">-->
+								<input id="percent" onchange="ud()" style="width: 70px" type="text" value="1"> %
+
+							</td>
+							<td>
+								<select id="percentType" onchange="ud()" style="width: 120px" type="text" value="1">
+									<option value="1">в день</option>
+									<option value="2">в год</option>
+								</select>
+							</td>
+						</tr>
+							</tbody></table>
+						<div class="notice">Проценты, указанные в договоре</div>
+					</td>
+				</tr>
+				<tr>
+					<td class="label" style="white-space: normal">Частичная оплата задолженности:</td>
+					<td >
+						<div id="pays">
+						<div id="pay0"><input name="payDates[]" class="payDate" id="payDate0" type="date" onchange="ud()" style="width:150px" value="" type="text"/>
+						на сумму <input name="paySums[]" class="paySum" id="paySum0">
+							<span title="Дополнения и примечания по оплате">прим. <input name="payOrders[]" class="payOrder" id="payOrder0"></span>
+							<input class="payAdd" type="button" value="+" title="Добавить строчку" onclick="addPay()">
+						</div>
+					</td>
+				</tr>
+				<!--<tr>
+					<td class="label" style="white-space: normal">Дополнительные задолженности:
+					</td>
+					<td>
+						<div id="loans">
+						<div id="loan0"><input name="loanDates[]" class="payDate" id="loanDate0" type="date" onchange="ud()" style="width:150px" value="">
+						на сумму <input name="loanSums[]" class="paySum" id="loanSum0">
+							<span title="Дополнения и примечания по оплате">прим. <input name="loanOrders[]" class="payOrder" id="loanOrder0"></span>
+							<input class="payAdd" type="button" value="+" title="Добавить строчку" onclick="addLoan()">
+						</div>
+						</div>
+					</td>
+				</tr>-->
+				<tr>
+					<td>
+						&nbsp;</td>
+					<td>
+						<input onclick="ud(true)" style="width:auto; padding:10px 15px; font-size:20px" type="button" value="Рассчитать" />
+						<input onclick="clearCalc()" style="width:auto; padding:10px 15px; font-size:20px" type="button" value="Очистить" />
+					</td>
+				</tr>
+			</tbody>
+		</table>
+	</form>
+</div>
+
+<div id="loanImport" class="paysImport" style="display: none">
+<div class="paysMiddle">
+<table class="paysTable"><tr>
+<td>
+	<div class="paysTitle" style="margin-bottom: 6px">Вставить данные о задолженности</div>
+	<textarea id="loanImportText" class="paysText"></textarea><br>
+	<input type="button" onclick="pasteLoans()" value="Вставить">
+	<input type="button" onclick="closeLoanImport()" value="Закрыть">
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div id="payImport" class="paysImport" style="display: none">
+<div class="paysMiddle">
+<table class="paysTable"><tr>
+<td>
+	<div class="paysTitle" style="margin-bottom: 6px">Вставить данные об оплате</div>
+	<textarea id="payImportText" class="paysText"></textarea><br>
+	<input type="button" onclick="pastePayments()" value="Вставить">
+	<input type="button" onclick="closePaymentImport()" value="Закрыть">
+</td>
+</tr>
+</table>
+</div>
+</div>
+
+<div style="margin: 20px 0; font-size:20px">
+	<a href="javascript:" class="copyTable">Скопировать таблицу</a>
+</div>
+
+<div class="1resultAppearing" id="resultParams">
+<table class="judge-table jt-3">
+<tr>
+	<td class="label">
+		Задолженность:</td>
+	<td><span id="loanAmountRes"></span> руб.</td>
+	<td class="label">Ставка:</td>
+	<td id="rateTypeRes"></td>
+
+</tr>
+<tr>
+	<td class="label">Начало периода:</td>
+	<td id="dateStartRes"></td>
+	<td class="label">Конец периода:</td>
+	<td id="dateFinishRes"></td>
+</tr>
+</table>
+</div>
+<div id="resultPane"></div>
+</div>
+<div id="calend"></div>
+<script type="text/javascript">
+$(function() {
+	$('.copyTable').click(function() {
+		copyTableToClipboard('resultPane');
+	});
+	$('.copyLink').click(function() {
+		copyHrefToClipboard('djuLink');
+	});
+});
+</script>
+<script type="text/javascript">
+	var dpOptions = {
+		inline: false,
+		monthNames : ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь' ],
+		monthNamesShort : [ 'Янв', 'Февр', 'Март', 'Апр', 'Май', 'Июнь', 'Июль', 'Авг', 'Сент', 'Окт', 'Нояб', 'Дек' ],
+		dayNames: [ 'Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота' ],
+		dayNamesMin: [ 'Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб' ],
+
+		firstDay: 1,
+		changeMonth: true,
+		changeYear: true,
+		dateFormat: "dd.mm.yy",
+		yearRange:"c-10:c+2",
+		showAnim: "",
+		onChangeMonthYear: function(year, month, picker) {
+			if (picker.currentYear == 0) return;
+			var dim = daysInMonth(year, month);
+			if (dim < picker.currentDay)
+				picker.currentDay = dim;
+			$(this).datepicker('setDate', new Date(year, month - 1, picker.currentDay));
+		}
+	};
+	$( "#dateStart" ).datepicker(dpOptions);
+	$( "#dateFinish" ).datepicker(dpOptions);
+	$( "#payDate0" ).datepicker(dpOptions);
+
+	var data = ph();
+	if (data['dateFinish'])
+		document.getElementById('dateFinish').value = data['dateFinish'];
+	else
+		document.getElementById('dateFinish').value = fd(new Date());
+	if (data['dateStart'])
+		document.getElementById('dateStart').value = data['dateStart'];
+	if (data['loanAmount'])
+		document.getElementById('loanAmount').value = data['loanAmount'];
+	if (data['percent'])
+		document.getElementById('percent').value = data['percent'];
+	if (data['limitPeni'])
+		document.getElementById('limitPeni').value = data['limitPeni'];
+	if (data['percentType']) {
+		var options = document.getElementById('percentType').options;
+		for (var i = 0; i < options.length; i++)
+			if (data['percentType'] == options[i].value) {
+				document.getElementById('percentType').selectedIndex = i;
+				break;
+			}
+	}
+	if (data['payments'])
+		setPayments(data['payments']);
+	if (data['loans'])
+		setLoans(data['loans']);
+	ud();
+</script>
+	<div style="overflow: hidden; margin-top: 12px">
+
+
+	</div>
+
+
+
+</body></html>

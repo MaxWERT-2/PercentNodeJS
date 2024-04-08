@@ -1,0 +1,13 @@
+{
+    "name": "nw-demo",
+    "version": "0.0.1",
+    "main": "index.html",
+    "window": {
+      "toolbar": false
+    , "width": 800
+    , "height": 650
+    , "min_width": 800
+    , "min_height": 650
+    , "icon":"percent.png"
+    }
+  }
